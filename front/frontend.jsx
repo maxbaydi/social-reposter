@@ -558,7 +558,8 @@ const Dashboard = ({ setModal }) => {
     const systemStatus = [
         { name: 'WordPress API', status: true },
         { name: 'Telegram Bot API', status: true },
-        { name: 'VK API', status: stats.vkApiStatus !== false }
+        { name: 'VK API', status: stats.vkApiStatus !== false },
+        { name: 'Кэш Live задач', status: stats.cacheInfo?.size > 0, details: `${stats.cacheInfo?.size || 0} записей` }
     ];
 
     if (loading) {
@@ -1341,13 +1342,13 @@ export default function App() {
         }
     }, []);
 
-    // Автоматическое обновление данных каждые 30 секунд
+    // Автоматическое обновление данных каждые 2 минуты (увеличиваем с 30 секунд)
     useEffect(() => {
         if (!user) return;
         
         const interval = setInterval(() => {
             loadAllData();
-        }, 30000); // 30 секунд
+        }, 120000); // 2 минуты
 
         return () => clearInterval(interval);
     }, [user]);

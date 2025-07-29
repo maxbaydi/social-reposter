@@ -49,7 +49,7 @@ exports.postToVk = async (apiKey, ownerId, content, linkUrl, imageUrl) => {
             owner_id: ownerId,
             from_group: 1,
             message: finalMessage,
-            parse_mode: 'MarkdownV2',
+            parse_mode: 'HTML', // Заменяем MarkdownV2 на HTML
             v: '5.199'
         };
 

@@ -40,18 +40,30 @@ const convertToMs = (value, unit) => {
     return value * (multipliers[unit] || multipliers.hours);
 };
 
-// Быстрая проверка - есть ли задачи готовые к выполнению
-exports.hasActiveScheduledTasks = async () => {
-    const count = await ScheduledTask.count({
-        where: { status: 'active', nextRun: { [Op.lte]: new Date() } }
-    });
-    return count > 0;
+// Функция для получения обновленной задачи после выполнения
+exports.getNextScheduledTask = async (taskId) => {
+    try {
+        const task = await ScheduledTask.findByPk(taskId);
+        return task;
+    } catch (error) {
+        console.error(`Error getting task ${taskId}:`, error.message);
+        return null;
+    }
 };
 
-exports.processScheduledTasks = async () => {
-    const tasksToRun = await ScheduledTask.findAll({
-        where: { status: 'active', nextRun: { [Op.lte]: new Date() } }
-    });
+// Обновляем функцию processScheduledTasks для работы с массивом задач
+exports.processScheduledTasks = async (specificTasks = null) => {
+    let tasksToRun;
+    
+    if (specificTasks) {
+        // Если переданы конкретные задачи, используем их
+        tasksToRun = specificTasks;
+    } else {
+        // Иначе получаем все задачи, готовые к выполнению
+        tasksToRun = await ScheduledTask.findAll({
+            where: { status: 'active', nextRun: { [Op.lte]: new Date() } }
+        });
+    }
 
     for (const task of tasksToRun) {
         try {
@@ -209,4 +221,12 @@ exports.processScheduledTasks = async () => {
             }
         }
     }
+};
+
+// Оставляем старую функцию для обратной совместимости
+exports.hasActiveScheduledTasks = async () => {
+    const count = await ScheduledTask.count({
+        where: { status: 'active', nextRun: { [Op.lte]: new Date() } }
+    });
+    return count > 0;
 };

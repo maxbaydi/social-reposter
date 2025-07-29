@@ -3,9 +3,9 @@ const Log = require('../db/models/Log');
 const Account = require('../db/models/Account');
 const { getPosts } = require('../services/wordpressService');
 
-// Кеш для прогресса задач (обновляется раз в 2 минуты)
+// Кеш для прогресса задач (обновляется раз в 10 минут)
 const progressCache = new Map();
-const CACHE_DURATION = 2 * 60 * 1000; // 2 минуты
+const CACHE_DURATION = 10 * 60 * 1000; // 10 минут
 
 const calculateTaskProgress = async (task) => {
     const cacheKey = `task_${task.id}_${task.sourceAccountId}`;
@@ -120,6 +120,9 @@ const convertToMs = (value, unit) => {
     return value * (multipliers[unit] || multipliers.hours);
 };
 
+// Импортируем функции планировщика
+const { scheduleNewTask, unscheduleTask, updateScheduledTask } = require('../services/scheduler');
+
 // Создать новую задачу
 exports.createScheduledTask = async (req, res) => {
     const { 
@@ -172,6 +175,11 @@ exports.createScheduledTask = async (req, res) => {
             status: status || 'draft',
             nextRun: status === 'active' ? calculateNextRun(scheduleSettings) : null, // Вычисляем nextRun только для активных задач
         });
+        
+        // Планируем задачу если она активна
+        if (task.status === 'active') {
+            scheduleNewTask(task);
+        }
         
         console.log('Successfully created scheduled task:', task.id);
         res.status(201).json(task);
@@ -248,6 +256,9 @@ exports.updateScheduledTask = async (req, res) => {
         
         await task.save();
         
+        // Обновляем планирование задачи
+        updateScheduledTask(task);
+        
         console.log('Successfully updated scheduled task:', task.id);
         res.json(task);
     } catch (error) {
@@ -278,21 +289,21 @@ exports.toggleScheduledTaskStatus = async (req, res) => {
             return res.status(404).json({ message: 'Task not found' });
         }
         
-        // Переключаем статус
-        if (task.status === 'active') {
-            task.status = 'paused';
-            task.nextRun = null; // Очищаем nextRun для приостановленных задач
-        } else if (task.status === 'paused' || task.status === 'draft') {
-            task.status = 'active';
-            task.nextRun = calculateNextRun(task.scheduleSettings); // Устанавливаем nextRun для активных задач
+        const oldStatus = task.status;
+        task.status = task.status === 'active' ? 'paused' : 'active';
+        
+        // Если задача становится активной, вычисляем nextRun
+        if (task.status === 'active' && oldStatus !== 'active') {
+            task.nextRun = calculateNextRun(task.scheduleSettings);
         }
         
         await task.save();
         
-        console.log(`Task ${task.name} status changed to ${task.status}, nextRun: ${task.nextRun}`);
+        // Очищаем кэш прогресса для этой задачи
+        clearProgressCache(task.id);
+        
         res.json(task);
     } catch (error) {
-        console.error('Error toggling task status:', error);
         res.status(500).json({ message: 'Server Error: ' + error.message });
     }
 };
@@ -320,3 +331,20 @@ exports.clearTaskHistory = async (req, res) => {
         res.status(500).json({ message: 'Server Error: ' + error.message });
     }
 }; 
+
+// Функция для очистки кэша прогресса задач
+const clearProgressCache = (taskId = null) => {
+    if (taskId) {
+        // Очищаем кэш для конкретной задачи
+        const keysToDelete = Array.from(progressCache.keys()).filter(key => key.includes(`task_${taskId}_`));
+        keysToDelete.forEach(key => progressCache.delete(key));
+        console.log(`[ProgressCache] Cleared cache for task ${taskId}`);
+    } else {
+        // Очищаем весь кэш
+        progressCache.clear();
+        console.log(`[ProgressCache] Cleared all progress cache`);
+    }
+};
+
+// Экспортируем функцию для использования в других модулях
+exports.clearProgressCache = clearProgressCache; 

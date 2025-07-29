@@ -1,4 +1,5 @@
 const LiveTask = require('../db/models/LiveTask');
+const { clearLiveTaskCache } = require('../services/liveRunner');
 
 exports.getLiveTasks = async (req, res) => {
     try {
@@ -97,6 +98,10 @@ exports.toggleLiveTaskStatus = async (req, res) => {
         }
         task.status = task.status === 'active' ? 'paused' : 'active';
         await task.save();
+        
+        // Очищаем кэш для этой задачи при изменении статуса
+        clearLiveTaskCache(task.id);
+        
         res.json(task);
     } catch (error) {
         res.status(500).json({ message: 'Server Error: ' + error.message });

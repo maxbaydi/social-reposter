@@ -27,7 +27,12 @@ app.get('/api/stats', require('./middleware/authMiddleware').protect, getStats);
 const PORT = process.env.PORT || 5000;
 
 sequelize.sync().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+  const server = app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Please stop other instances.`);
+      process.exit(1);
+    }
   });
 }); 

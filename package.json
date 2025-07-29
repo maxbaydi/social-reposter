@@ -1,20 +1,10 @@
 {
-  "name": "social-reposter",
-  "version": "1.0.0",
-  "description": "Автоматический репостер для социальных сетей",
-  "main": "server/src/server.js",
-  "scripts": {
-    "start": "cd server && npm start",
-    "dev": "cd server && npm run dev",
-    "build": "cd front && npm run build",
-    "install-server": "cd server && npm install",
-    "install-front": "cd front && npm install",
-    "postinstall": "npm run install-server && npm run install-front"
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.11"
   },
-  "keywords": ["reposter", "social-media", "wordpress", "vk", "telegram"],
-  "author": "Max Bay",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18.0.0"
+  "dependencies": {
+    "turndown": "^7.2.0"
   }
 }

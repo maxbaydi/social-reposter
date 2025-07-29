@@ -11,6 +11,10 @@ const { sendEmail } = require('./emailService');
 const { syncNewPosts, getTodaysPosts, cleanLiveCache } = require('./postCacheService');
 const User = require('../db/models/User');
 
+// Кэш для Live задач (обновляется раз в 30 минут)
+const liveTaskCache = new Map();
+const LIVE_CACHE_DURATION = 30 * 60 * 1000; // 30 минут
+
 // Быстрая проверка - есть ли активные live задачи
 exports.hasActiveLiveTasks = async () => {
     const count = await LiveTask.count({ where: { status: 'active' } });
@@ -45,9 +49,20 @@ exports.processLiveTasks = async () => {
     for (const task of liveTasks) {
         try {
             console.log(`Processing live task: ${task.name}`);
+            
+            // Проверяем кэш для этой задачи
+            const cacheKey = `live_task_${task.id}`;
+            const now = Date.now();
+            const cached = liveTaskCache.get(cacheKey);
+            
+            if (cached && (now - cached.timestamp) < LIVE_CACHE_DURATION) {
+                console.log(`[LiveTask] Using cached data for task: ${task.name}`);
+                continue; // Пропускаем обработку, если кэш еще актуален
+            }
+            
             const sourceAccount = await Account.findByPk(task.sourceAccountId);
 
-            // 1. Обновляем кеш новыми постами с сайта
+            // 1. Обновляем кеш новыми постами с сайта (только если кэш устарел)
             console.log(`[LiveTask] Syncing cache for account: ${task.sourceAccountId}`);
             await syncNewPosts(task.sourceAccountId);
 
@@ -60,6 +75,8 @@ exports.processLiveTasks = async () => {
 
             if (todaysPosts.length === 0) {
                 console.log(`[LiveTask] No posts found for today for task: ${task.name}`);
+                // Сохраняем в кэш информацию об отсутствии постов
+                liveTaskCache.set(cacheKey, { timestamp: now, hasPosts: false });
                 continue;
             }
 
@@ -90,6 +107,8 @@ exports.processLiveTasks = async () => {
 
             if (!unpublishedPost) {
                 console.log(`[LiveTask] All today's posts already published for task: ${task.name}`);
+                // Сохраняем в кэш информацию о том, что все посты опубликованы
+                liveTaskCache.set(cacheKey, { timestamp: now, hasPosts: true, allPublished: true });
                 continue;
             }
 
@@ -141,29 +160,87 @@ exports.processLiveTasks = async () => {
                         
                         success = await postToVk(dest.credentials.apiKey, ownerId, processedContent, postUrl, null);
                     }
+                } else {
+                    console.error(`Unsupported platform type: ${dest.type}`);
                 }
 
-                await Log.create({
-                    userId: task.userId,
-                    level: success ? 'success' : 'error',
-                    message: `LiveTask ${task.id}: Published post ID: ${post.id} to ${dest.name}.`
-                });
+                if (success) {
+                    console.log(`Successfully published to ${dest.name}`);
+                    
+                    // Логируем успешную публикацию
+                    await Log.create({
+                        userId: task.userId,
+                        taskId: task.id,
+                        level: 'success',
+                        message: `LiveTask ${task.id}: Successfully published post ID: ${post.id} to ${dest.name}`,
+                        details: {
+                            postId: post.id,
+                            postTitle: post.title.rendered,
+                            destination: dest.name,
+                            platform: dest.type
+                        }
+                    });
+                } else {
+                    console.error(`Failed to publish to ${dest.name}`);
+                    
+                    // Логируем ошибку
+                    await Log.create({
+                        userId: task.userId,
+                        taskId: task.id,
+                        level: 'error',
+                        message: `LiveTask ${task.id}: Failed to publish post ID: ${post.id} to ${dest.name}`,
+                        details: {
+                            postId: post.id,
+                            postTitle: post.title.rendered,
+                            destination: dest.name,
+                            platform: dest.type
+                        }
+                    });
+                }
             }
-
-        } catch (error) {
-            console.error(`Error processing live task ${task.id}:`, error.message);
-            await Log.create({ userId: task.userId, level: 'error', message: `LiveTask ${task.id}: ${error.message}`});
             
-            // Отправляем email об ошибке
-            const user = await User.findByPk(task.userId);
-            if (user) {
-                 await sendEmail({
-                    to: user.email,
-                    subject: `Ошибка в Live-задаче "${task.name}"`,
-                    text: `Произошла ошибка при выполнении Live-задачи "${task.name}": ${error.message}`,
-                    html: `<p>Произошла ошибка при выполнении Live-задачи <b>"${task.name}"</b>:</p><p>${error.message}</p>`
-                });
-            }
+            // Сохраняем в кэш информацию об успешной обработке
+            liveTaskCache.set(cacheKey, { timestamp: now, hasPosts: true, allPublished: false });
+            
+        } catch (error) {
+            console.error(`Error processing live task ${task.name}:`, error.message);
+            
+            // Логируем ошибку
+            await Log.create({
+                userId: task.userId,
+                taskId: task.id,
+                level: 'error',
+                message: `LiveTask ${task.id}: Error processing task: ${error.message}`,
+                details: { error: error.message }
+            });
         }
     }
+}; 
+
+// Функция для очистки кэша Live задач
+exports.clearLiveTaskCache = (taskId = null) => {
+    if (taskId) {
+        // Очищаем кэш для конкретной задачи
+        const cacheKey = `live_task_${taskId}`;
+        liveTaskCache.delete(cacheKey);
+        console.log(`[LiveTask] Cleared cache for task ${taskId}`);
+    } else {
+        // Очищаем весь кэш
+        liveTaskCache.clear();
+        console.log(`[LiveTask] Cleared all live task cache`);
+    }
+};
+
+// Функция для получения информации о кэше
+exports.getLiveTaskCacheInfo = () => {
+    return {
+        size: liveTaskCache.size,
+        entries: Array.from(liveTaskCache.entries()).map(([key, value]) => ({
+            key,
+            timestamp: value.timestamp,
+            age: Date.now() - value.timestamp,
+            hasPosts: value.hasPosts,
+            allPublished: value.allPublished
+        }))
+    };
 }; 
