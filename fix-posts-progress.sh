@@ -201,6 +201,10 @@ main() {
         
         echo ""
         log "Синхронизация завершена. Проверьте прогресс через 1-2 минуты."
+        
+        echo ""
+        info "=== РЕЗУЛЬТАТ ==="
+        sqlite3 server/database.sqlite "SELECT id, name, status, progress FROM scheduled_tasks WHERE status IN ('active', 'completed');" 2>/dev/null
     fi
     
     echo ""

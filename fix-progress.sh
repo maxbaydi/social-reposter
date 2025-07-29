@@ -75,15 +75,15 @@ main() {
         exit 1
     fi
     
-    # Получаем все активные задачи
-    local tasks=$(sqlite3 server/database.sqlite "SELECT id, name, sourceAccountId, filterSettings FROM scheduled_tasks WHERE status = 'active';" 2>/dev/null)
+                    # Получаем все задачи (активные и завершенные)
+                local tasks=$(sqlite3 server/database.sqlite "SELECT id, name, sourceAccountId, filterSettings FROM scheduled_tasks WHERE status IN ('active', 'completed');" 2>/dev/null)
     
     if [ -z "$tasks" ]; then
         warning "Активные задачи не найдены"
         exit 0
     fi
     
-    info "Найдено активных задач: $(echo "$tasks" | wc -l)"
+                    info "Найдено задач для обработки: $(echo "$tasks" | wc -l)"
     
     # Обрабатываем каждую задачу
     while IFS='|' read -r task_id task_name account_id filter_settings; do
